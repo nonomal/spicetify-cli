@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 func MigrateConfigFolder() {
@@ -21,6 +22,16 @@ func MigrateConfigFolder() {
 			PrintGreen("OK")
 		}
 	}
+}
+
+func ReplaceEnvVarsInString(input string) string {
+	var replacements []string
+	for _, v := range os.Environ() {
+		pair := strings.SplitN(v, "=", 2)
+		replacements = append(replacements, "$"+pair[0], pair[1])
+	}
+	replacer := strings.NewReplacer(replacements...)
+	return replacer.Replace(input)
 }
 
 func GetSpicetifyFolder() string {
@@ -66,16 +77,48 @@ func GetUserFolder(name string) string {
 var userAppsFolder = GetUserFolder("CustomApps")
 var userExtensionsFolder = GetUserFolder("Extensions")
 
+func GetCustomAppSubfolderPath(folderPath string) string {
+	entries, err := os.ReadDir(folderPath)
+	if err != nil {
+		return ""
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			subfolderPath := filepath.Join(folderPath, entry.Name())
+			indexPath := filepath.Join(subfolderPath, "index.js")
+
+			if _, err := os.Stat(indexPath); err == nil {
+				return subfolderPath
+			}
+
+			if subfolderPath := GetCustomAppSubfolderPath(subfolderPath); subfolderPath != "" {
+				return subfolderPath
+			}
+		}
+	}
+
+	return ""
+}
+
 func GetCustomAppPath(name string) (string, error) {
 	customAppFolderPath := filepath.Join(userAppsFolder, name)
 
 	if _, err := os.Stat(customAppFolderPath); err == nil {
+		customAppActualFolderPath := GetCustomAppSubfolderPath(customAppFolderPath)
+		if customAppActualFolderPath != "" {
+			return customAppActualFolderPath, nil
+		}
 		return customAppFolderPath, nil
 	}
 
 	customAppFolderPath = filepath.Join(GetExecutableDir(), "CustomApps", name)
 
 	if _, err := os.Stat(customAppFolderPath); err == nil {
+		customAppActualFolderPath := GetCustomAppSubfolderPath(customAppFolderPath)
+		if customAppActualFolderPath != "" {
+			return customAppActualFolderPath, nil
+		}
 		return customAppFolderPath, nil
 	}
 

@@ -13,7 +13,6 @@ import (
 )
 
 var (
-	supportedSpotifyVersion = "1.1.90"
 	spicetifyFolder         = utils.GetSpicetifyFolder()
 	rawFolder, themedFolder = getExtractFolder()
 	backupFolder            = utils.GetUserFolder("Backup")
@@ -34,6 +33,7 @@ var (
 	colorCfg                *ini.File
 	colorSection            *ini.Section
 	injectCSS               bool
+	injectJS                bool
 	replaceColors           bool
 	overwriteAssets         bool
 )
@@ -57,68 +57,52 @@ func InitPaths() {
 	spotifyPath = settingSection.Key("spotify_path").String()
 	prefsPath = settingSection.Key("prefs_path").String()
 
-	if len(spotifyPath) == 0 {
-		spotifyPath = utils.FindAppPath()
+	spotifyPath = utils.ReplaceEnvVarsInString(spotifyPath)
+	prefsPath = utils.ReplaceEnvVarsInString(prefsPath)
+	testPath := spotifyPath
 
-		if len(spotifyPath) == 0 {
+	if runtime.GOOS == "windows" {
+		testPath = filepath.Join(spotifyPath, "Spotify.exe")
+	}
+
+	if _, err := os.Stat(testPath); err != nil {
+		actualSpotifyPath := utils.FindAppPath()
+
+		if len(actualSpotifyPath) == 0 {
+			if len(spotifyPath) != 0 {
+				utils.PrintError(spotifyPath + ` is not a valid path. Please manually set "spotify_path" in config-xpui.ini to correct directory of Spotify.`)
+				os.Exit(1)
+			}
 			utils.PrintError(`Cannot detect Spotify location. Please manually set "spotify_path" in config-xpui.ini`)
 			os.Exit(1)
 		}
 
+		spotifyPath = actualSpotifyPath
 		settingSection.Key("spotify_path").SetValue(spotifyPath)
 		cfg.Write()
 	}
 
-	if runtime.GOOS == "windows" {
-		if strings.Contains(spotifyPath, "SpotifyAB.SpotifyMusic") {
-			isAppX = true
-		}
-		if strings.Contains(prefsPath, "SpotifyAB.SpotifyMusic") {
-			isAppX = true
-		}
-	}
+	if _, err := os.Stat(prefsPath); err != nil {
+		actualPrefsPath := utils.FindPrefFilePath()
 
-	if _, err := os.Stat(spotifyPath); err != nil {
-		if isAppX {
-			settingSection.Key("spotify_path").SetValue("")
-			isAppX = false
-			InitPaths()
-			return
-		}
-		utils.PrintError(spotifyPath + ` does not exist or is not a valid path. Please manually set "spotify_path" in config-xpui.ini to correct directory of Spotify.`)
-		os.Exit(1)
-	}
-
-	if runtime.GOOS == "windows" {
-		if _, err := os.Stat(filepath.Join(spotifyPath, "Spotify.exe")); err != nil {
-			if isAppX {
-				settingSection.Key("spotify_path").SetValue("")
-				isAppX = false
-				InitPaths()
-				return
+		if len(actualPrefsPath) == 0 {
+			if len(prefsPath) != 0 {
+				utils.PrintError(prefsPath + ` does not exist or is not a valid path. Please manually set "prefs_path" in config-xpui.ini to correct path of "prefs" file.`)
+				os.Exit(1)
 			}
-			utils.PrintError(spotifyPath + ` is not a valid path. Please manually set "spotify_path" in config-xpui.ini to correct directory of Spotify.`)
+			utils.PrintError(`Cannot detect Spotify "prefs" file location. Please manually set "prefs_path" in config-xpui.ini`)
 			os.Exit(1)
 		}
-	}
 
-	if len(prefsPath) != 0 {
-		if _, err := os.Stat(prefsPath); err != nil {
-			if isAppX {
-				settingSection.Key("prefs_path").SetValue("")
-				isAppX = false
-				InitPaths()
-				return
-			}
-			utils.PrintError(prefsPath + ` does not exist or is not a valid path. Please manually set "prefs_path" in config-xpui.ini to correct path of "prefs" file.`)
-			os.Exit(1)
-		}
-	} else if prefsPath = utils.FindPrefFilePath(); len(prefsPath) != 0 {
+		prefsPath = actualPrefsPath
 		settingSection.Key("prefs_path").SetValue(prefsPath)
 		cfg.Write()
-	} else {
-		utils.PrintError(`Cannot detect Spotify "prefs" file location. Please manually set "prefs_path" in config-xpui.ini`)
-		os.Exit(1)
+	}
+
+	if runtime.GOOS == "windows" {
+		if strings.Contains(spotifyPath, "SpotifyAB.SpotifyMusic") || strings.Contains(prefsPath, "SpotifyAB.SpotifyMusic") {
+			isAppX = true
+		}
 	}
 
 	appPath = filepath.Join(spotifyPath, "Apps")
@@ -136,12 +120,14 @@ func InitPaths() {
 func InitSetting() {
 	replaceColors = settingSection.Key("replace_colors").MustBool(false)
 	injectCSS = settingSection.Key("inject_css").MustBool(false)
+	injectJS = settingSection.Key("inject_theme_js").MustBool(false)
 	overwriteAssets = settingSection.Key("overwrite_assets").MustBool(false)
 
 	themeName := settingSection.Key("current_theme").String()
 
 	if len(themeName) == 0 {
 		injectCSS = false
+		injectJS = false
 		replaceColors = false
 		overwriteAssets = false
 		return
@@ -152,6 +138,7 @@ func InitSetting() {
 	colorPath := filepath.Join(themeFolder, "color.ini")
 	cssPath := filepath.Join(themeFolder, "user.css")
 	assetsPath := filepath.Join(themeFolder, "assets")
+	jsPath := filepath.Join(themeFolder, "theme.js")
 
 	if replaceColors {
 		_, err := os.Stat(colorPath)
@@ -161,6 +148,14 @@ func InitSetting() {
 	if injectCSS {
 		_, err := os.Stat(cssPath)
 		injectCSS = err == nil
+	}
+
+	if injectJS {
+		_, err := os.Stat(jsPath)
+		injectJS = err == nil
+		if err != nil {
+			utils.CheckExistAndDelete(filepath.Join(appDestPath, "xpui", "extensions/theme.js"))
+		}
 	}
 
 	if overwriteAssets {
@@ -268,9 +263,9 @@ func ReadAnswer(info string, defaultAnswer bool, quietModeAnswer bool) bool {
 	return ReadAnswer(info, defaultAnswer, quietModeAnswer)
 }
 
-// CheckUpgrade fetches latest package version from Github API and inform user if there is new release
-func CheckUpgrade(version string) {
-	if !settingSection.Key("check_spicetify_upgrade").MustBool() {
+// CheckUpdate fetches latest package version from Github API and inform user if there is new release
+func CheckUpdate(version string) {
+	if !settingSection.Key("check_spicetify_update").MustBool() || version == "Dev" {
 		return
 	}
 
@@ -282,12 +277,10 @@ func CheckUpgrade(version string) {
 		return
 	}
 
-	utils.PrintNote("Full Spicetify functionality is not guaranteed above Spotify's v" + supportedSpotifyVersion)
-
 	if latestTag == version {
 		utils.PrintInfo("Spicetify up-to-date")
 	} else {
-		utils.PrintWarning("New version available!")
-		utils.PrintWarning(`Run "spicetify upgrade" or using package manager to upgrade spicetify`)
+		utils.PrintWarning("New version available: v" + latestTag + " (currently on: v" + version + ")")
+		utils.PrintWarning(`Run "spicetify update" or using package manager to update spicetify`)
 	}
 }

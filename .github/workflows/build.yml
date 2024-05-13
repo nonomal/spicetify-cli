@@ -9,12 +9,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v1
+        uses: actions/checkout@v4
 
       - name: Setup Go
-        uses: actions/setup-go@v2
+        uses: actions/setup-go@v5
         with:
-          go-version: 1.17
+          go-version-file: "go.mod"
 
       - name: Build
         run: go build .
@@ -36,7 +36,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v1
+        uses: actions/checkout@v4
 
       - name: Get Tag
         run: echo "TAG=${GITHUB_REF#refs/*/v}" >> $GITHUB_ENV
@@ -45,12 +45,12 @@ jobs:
         run: echo "IS_UNIX=${{ matrix.os != 'windows' && matrix.arch != '386' }}" >> $GITHUB_ENV
 
       - name: Is Windows Platform
-        run: echo "IS_WIN=${{ matrix.os == 'windows' && matrix.arch != 'arm64' }}" >> $GITHUB_ENV
+        run: echo "IS_WIN=${{ matrix.os == 'windows' }}" >> $GITHUB_ENV
 
       - name: Setup Go
-        uses: actions/setup-go@v2
+        uses: actions/setup-go@v5
         with:
-          go-version: 1.17
+          go-version-file: "go.mod"
 
       - name: Build
         if: env.IS_UNIX == 'true' || env.IS_WIN == 'true'
@@ -60,6 +60,7 @@ jobs:
         env:
           GOOS: ${{ matrix.os }}
           GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: 0
 
       - name: 7z - .tar
         if: env.IS_UNIX == 'true'
@@ -77,23 +78,29 @@ jobs:
         if: env.IS_WIN == 'true'
         uses: edgarrc/action-7z@v1
         with:
-          args: 7z a -bb0 -mx9 "spicetify-${{ env.TAG }}-${{ matrix.os }}-${{ matrix.arch == 'amd64' && 'x64' || 'x32' }}.zip" "./spicetify.exe" "./CustomApps" "./Extensions" "./Themes" "./jsHelper" "globals.d.ts" "css-map.json"
+          args: 7z a -bb0 -mx9 "spicetify-${{ env.TAG }}-${{ matrix.os }}-${{ (matrix.arch == 'amd64' && 'x64') || (matrix.arch == 'arm64' && 'arm64') || 'x32' }}.zip" "./spicetify.exe" "./CustomApps" "./Extensions" "./Themes" "./jsHelper" "globals.d.ts" "css-map.json"
 
       - name: Release
         if: env.IS_UNIX == 'true' || env.IS_WIN == 'true'
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: "spicetify-${{ env.TAG }}-${{ matrix.os }}-${{ (matrix.os == 'windows' && matrix.arch == 'amd64' && 'x64') || (matrix.os == 'windows' && matrix.arch == '386' && 'x32') || matrix.arch }}.${{ matrix.os == 'windows' && 'zip' || 'tar.gz' }}"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   trigger-release:
-    runs-on: ubuntu-latest
     name: Trigger Homebrew/AUR Release
+    runs-on: ubuntu-latest
     needs: release
     steps:
-      - name: Update Homebrew/AUR
+      - name: Update AUR package
         uses: fjogeleit/http-request-action@master
         with:
           url: https://vps.itsmeow.dev/spicetify-update
           method: GET
+      - name: Update Winget package
+        uses: vedantmgoyal2009/winget-releaser@v2
+        with:
+          identifier: Spicetify.Spicetify
+          installers-regex: '-windows-\w+\.zip$'
+          token: ${{ secrets.SPICETIFY_WINGET_TOKEN }}

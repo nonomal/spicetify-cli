@@ -44,6 +44,22 @@ func Watch(liveUpdate bool) {
 		fileList = append(fileList, cssPath)
 	}
 
+	if injectJS {
+		jsPath := filepath.Join(themeFolder, "theme.js")
+		pathArr := []string{jsPath}
+
+		if _, err := os.Stat(jsPath); err == nil {
+			go utils.Watch(pathArr, func(_ string, err error) {
+				if err != nil {
+					utils.Fatal(err)
+				}
+
+				refreshThemeJS()
+				utils.PrintSuccess(utils.PrependTime("Theme's JS was reloaded"))
+			}, autoReloadFunc)
+		}
+	}
+
 	if overwriteAssets {
 		assetPath := filepath.Join(themeFolder, "assets")
 
@@ -53,8 +69,8 @@ func Watch(liveUpdate bool) {
 					utils.Fatal(err)
 				}
 
-				updateAssets()
-				utils.PrintSuccess(utils.PrependTime("Custom assets are updated"))
+				refreshThemeAssets()
+				utils.PrintSuccess(utils.PrependTime("Custom assets were reloaded"))
 			}, autoReloadFunc)
 		}
 	}
@@ -65,7 +81,7 @@ func Watch(liveUpdate bool) {
 		}
 
 		InitSetting()
-		updateCSS()
+		refreshThemeCSS()
 		utils.PrintSuccess(utils.PrependTime("Custom CSS is updated"))
 	}, autoReloadFunc)
 }
@@ -177,7 +193,7 @@ func WatchCustomApp(appName []string, liveUpdate bool) {
 				os.Exit(1)
 			}
 
-			pushApps(appName)
+			RefreshApps(appName)
 
 			utils.PrintSuccess(utils.PrependTime(`Custom app "` + appName + `" is updated.`))
 		}, autoReloadFunc)
@@ -203,7 +219,8 @@ func isValidForWatching() bool {
 
 func startDebugger() {
 	if len(utils.GetDebuggerPath()) == 0 {
-		EvalSpotifyRestart(true, "--remote-debugging-port=9222")
+		SetDevTools()
+		EvalSpotifyRestart(true, "--remote-debugging-port=9222", "--remote-allow-origins=*")
 		utils.PrintInfo("Spotify is restarted with debugger on. Waiting...")
 		for len(utils.GetDebuggerPath()) == 0 {
 			// Wait until debugger is up

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
@@ -83,7 +82,7 @@ func Unzip(src, dest string) error {
 
 // Copy .
 func Copy(src, dest string, recursive bool, filters []string) error {
-	dir, err := ioutil.ReadDir(src)
+	dir, err := os.ReadDir(src)
 	if err != nil {
 		return err
 	}
@@ -165,24 +164,55 @@ func CopyFile(srcPath, dest string) error {
 
 // Replace uses Regexp to find any matched from `input` with `regexpTerm`
 // and replaces them with `replaceTerm` then returns new string.
-func Replace(input *string, regexpTerm string, replaceTerm string) {
-	re := regexp.MustCompile(regexpTerm)
-	*input = re.ReplaceAllString(*input, replaceTerm)
+func Replace(str *string, pattern string, repl func(submatches ...string) string) {
+	re := regexp.MustCompile(pattern)
+	*str = re.ReplaceAllStringFunc(*str, func(match string) string {
+		submatches := re.FindStringSubmatch(match)
+		return repl(submatches...)
+	})
 }
 
-func ReplaceOnce(input *string, regexpTerm string, replaceTerm string) {
+func ReplaceOnce(str *string, pattern string, repl func(submatches ...string) string) {
+	re := regexp.MustCompile(pattern)
+	firstMatch := true
+	*str = re.ReplaceAllStringFunc(*str, func(match string) string {
+		if firstMatch {
+			firstMatch = false
+			submatches := re.FindStringSubmatch(match)
+			if submatches != nil {
+				return repl(submatches...)
+			}
+		}
+		return match
+	})
+}
+
+func FindMatch(input string, regexpTerm string) [][]string {
 	re := regexp.MustCompile(regexpTerm)
-	matches := re.FindAllString(*input, -1)
+	matches := re.FindAllStringSubmatch(input, -1)
+	return matches
+}
+
+func FindFirstMatch(input string, regexpTerm string) []string {
+	matches := FindMatch(input, regexpTerm)
 	if len(matches) > 0 {
-		toReplace := re.ReplaceAllString(matches[0], replaceTerm)
-		*input = strings.Replace(*input, matches[0], toReplace, 1)
+		return matches[0]
 	}
+	return nil
+}
+
+func FindLastMatch(input string, regexpTerm string) []string {
+	matches := FindMatch(input, regexpTerm)
+	if len(matches) > 0 {
+		return matches[len(matches)-1]
+	}
+	return nil
 }
 
 // ModifyFile opens file, changes file content by executing
 // `repl` callback function and writes new content.
 func ModifyFile(path string, repl func(string) string) {
-	raw, err := ioutil.ReadFile(path)
+	raw, err := os.ReadFile(path)
 	if err != nil {
 		log.Print(err)
 		return
@@ -190,7 +220,7 @@ func ModifyFile(path string, repl func(string) string) {
 
 	content := repl(string(raw))
 
-	ioutil.WriteFile(path, []byte(content), 0700)
+	os.WriteFile(path, []byte(content), 0700)
 }
 
 // GetSpotifyVersion .
@@ -248,7 +278,7 @@ func FindSymbol(debugInfo, content string, clues []string) []string {
 	}
 
 	if len(debugInfo) > 0 {
-		PrintError("cannot find symbol for " + debugInfo)
+		PrintError("Cannot find symbol for " + debugInfo)
 	}
 
 	return nil
@@ -293,6 +323,7 @@ func SeekToCloseParen(content string, regexpTerm string, leftChar, rightChar byt
 type AppManifest struct {
 	Files          []string `json:"subfiles"`
 	ExtensionFiles []string `json:"subfiles_extension"`
+	Assets         []string `json:"assets"`
 }
 
 func GetAppManifest(app string) (AppManifest, string, error) {

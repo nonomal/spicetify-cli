@@ -13,22 +13,23 @@ import (
 var (
 	configLayout = map[string]map[string]string{
 		"Setting": {
-			"spotify_path":            "",
-			"prefs_path":              "",
-			"current_theme":           "",
-			"color_scheme":            "",
-			"inject_css":              "1",
-			"replace_colors":          "1",
-			"overwrite_assets":        "0",
-			"spotify_launch_flags":    "",
-			"check_spicetify_upgrade": "0",
+			"spotify_path":           "",
+			"prefs_path":             "",
+			"current_theme":          "",
+			"color_scheme":           "",
+			"inject_theme_js":        "1",
+			"inject_css":             "1",
+			"replace_colors":         "1",
+			"overwrite_assets":       "0",
+			"spotify_launch_flags":   "",
+			"check_spicetify_update": "1",
+			"always_enable_devtools": "0",
 		},
 		"Preprocesses": {
-			"disable_sentry":        "1",
-			"disable_ui_logging":    "1",
-			"remove_rtl_rule":       "1",
-			"expose_apis":           "1",
-			"disable_upgrade_check": "1",
+			"disable_sentry":     "1",
+			"disable_ui_logging": "1",
+			"remove_rtl_rule":    "1",
+			"expose_apis":        "1",
 		},
 		"AdditionalOptions": {
 			"extensions":            "",
@@ -58,7 +59,8 @@ type Config interface {
 func ParseConfig(configPath string) Config {
 	cfg, err := ini.LoadSources(
 		ini.LoadOptions{
-			IgnoreContinuation: true,
+			IgnoreContinuation:  true,
+			IgnoreInlineComment: true,
 		},
 		configPath)
 
@@ -207,7 +209,7 @@ func FindPrefFilePath() string {
 
 func winApp() string {
 	path := filepath.Join(os.Getenv("APPDATA"), "Spotify")
-	if _, err := os.Stat(path); err == nil {
+	if _, err := os.Stat(filepath.Join(path, "Spotify.exe")); err == nil {
 		return path
 	}
 
@@ -302,11 +304,12 @@ func linuxApp() string {
 		"/usr/share/spotify/",
 		"/usr/libexec/spotify/",
 		"/var/lib/flatpak/app/com.spotify.Client/x86_64/stable/active/files/extra/share/spotify/",
+		"$HOME/.local/share/flatpak/app/com.spotify.Client/x86_64/stable/active/files/extra/share/spotify/",
 	}
 
 	for _, v := range potentialList {
-		_, err := os.Stat(filepath.Join(v, "Apps"))
-		_, err2 := os.Stat(filepath.Join(v, "spotify"))
+		_, err := os.Stat(filepath.Join(ReplaceEnvVarsInString(v), "Apps"))
+		_, err2 := os.Stat(filepath.Join(ReplaceEnvVarsInString(v), "spotify"))
 		if err == nil && err2 == nil {
 			return v
 		}
